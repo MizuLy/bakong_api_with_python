@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shop Anh - Payment Gateway</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+  </head>
+  <body
+    class="bg-slate-900 text-slate-100 min-h-screen flex items-center justify-center p-4"
+  >
+    <div
+      class="bg-slate-800 border border-slate-700 rounded-2xl shadow-2xl p-6 sm:p-8 w-full max-w-md"
+    >
+      <div class="text-center mb-6">
+        <h1 class="text-2xl font-bold text-white tracking-wide">Shop Anh</h1>
+        <p class="text-slate-400 text-sm mt-1">Scan & Pay via Bakong KHQR</p>
+      </div>
+
+      <div
+        id="alertBox"
+        class="hidden mb-4 p-3 rounded-lg text-sm font-medium"
+      ></div>
+
+      <form id="paymentForm" class="space-y-4">
+        <div>
+          <label
+            for="amount"
+            class="block text-xs font-semibold uppercase text-slate-400 mb-1"
+            >Amount</label
+          >
+          <input
+            type="number"
+            id="amount"
+            step="any"
+            placeholder="0.00"
+            required
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 transition-colors"
+          />
+        </div>
+
+        <div>
+          <label
+            for="currency"
+            class="block text-xs font-semibold uppercase text-slate-400 mb-1"
+            >Currency</label
+          >
+          <select
+            id="currency"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:outline-none focus:border-red-500 transition-colors"
+          >
+            <option value="USD">USD ($)</option>
+            <option value="KHR">KHR (៛)</option>
+          </select>
+        </div>
+
+        <div>
+          <label
+            for="description"
+            class="block text-xs font-semibold uppercase text-slate-400 mb-1"
+            >Description (Optional)</label
+          >
+          <input
+            type="text"
+            id="description"
+            placeholder="e.g. Order #1024"
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-red-500 transition-colors"
+          />
+        </div>
+
+        <button
+          type="submit"
+          id="submitBtn"
+          class="w-full bg-red-600 hover:bg-red-700 font-semibold py-3 px-4 rounded-lg text-white transition-all duration-200 shadow-lg shadow-red-900/30 active:scale-[0.98]"
+        >
+          Generate KHQR Code
+        </button>
+      </form>
+
+      <div
+        id="qrContainer"
+        class="hidden flex flex-col items-center space-y-4 text-center mt-2"
+      >
+        <div
+          class="bg-red-600 text-white font-bold px-4 py-1 rounded-full text-xs uppercase tracking-wider"
+        >
+          Bakong KHQR
+        </div>
+
+        <div class="bg-white p-4 rounded-2xl shadow-inner relative group">
+          <img
+            id="qrImage"
+            src=""
+            alt="KHQR Code"
+            class="w-56 h-56 object-contain"
+          />
+        </div>
+
+        <div class="space-y-1">
+          <p class="text-2xl font-extrabold text-white" id="displayAmount">
+            0.00
+          </p>
+          <p class="text-xs text-slate-400" id="displayBill">Bill: #</p>
+        </div>
+
+        <div
+          id="statusBadge"
+          class="flex items-center space-x-2 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-3 py-1.5 rounded-full text-xs font-medium"
+        >
+          <span class="w-2 h-2 rounded-full bg-yellow-400 animate-ping"></span>
+          <span id="statusText">Waiting for payment...</span>
+        </div>
+
+        <button
+          type="button"
+          onclick="resetForm()"
+          class="text-xs text-slate-400 hover:text-white underline pt-2 transition-colors"
+        >
+          Cancel & New Payment
+        </button>
+      </div>
+    </div>
+
+    <script>
+      // Update API Base URL if running on a different port/host
+      const API_BASE = "http://localhost:5050/api";
+
+      let pollInterval = null;
+
+      const paymentForm = document.getElementById("paymentForm");
+      const qrContainer = document.getElementById("qrContainer");
+      const qrImage = document.getElementById("qrImage");
+      const displayAmount = document.getElementById("displayAmount");
+      const displayBill = document.getElementById("displayBill");
+      const statusBadge = document.getElementById("statusBadge");
+      const statusText = document.getElementById("statusText");
+      const alertBox = document.getElementById("alertBox");
+      const submitBtn = document.getElementById("submitBtn");
+
+      paymentForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        hideAlert();
+
+        const amount = document.getElementById("amount").value;
+        const currency = document.getElementById("currency").value;
+        const description =
+          document.getElementById("description").value || "Payment";
+
+        // KHR Validation check on frontend
+        if (currency === "KHR" && Number(amount) % 1 !== 0) {
+          showAlert("KHR amount must be a whole number.", "error");
+          return;
+        }
+
+        setLoading(true);
+
+        try {
+          const response = await fetch(`${API_BASE}/generate-qr`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ amount, currency, description }),
+          });
+
+          const data = await response.json();
+
+          if (!response.ok || !data.success) {
+            throw new Error(data.error || "Failed to generate QR Code");
+          }
+
+          // Show QR Code & Transaction Info
+          qrImage.src = data.qr_image;
+          displayAmount.textContent = `${data.amount} ${data.currency}`;
+          displayBill.textContent = `Bill No: ${data.bill_number}`;
+
+          paymentForm.classList.add("hidden");
+          qrContainer.classList.remove("hidden");
+
+          // Start checking payment status
+          startPolling(data.md5);
+        } catch (err) {
+          showAlert(err.message, "error");
+        } finally {
+          setLoading(false);
+        }
+      });
+
+      function startPolling(md5) {
+        if (pollInterval) clearInterval(pollInterval);
+
+        pollInterval = setInterval(async () => {
+          try {
+            const res = await fetch(`${API_BASE}/check-payment?md5=${md5}`);
+            const data = await res.json();
+
+            if (res.ok && data.status === "PAID") {
+              clearInterval(pollInterval);
+
+              // Update UI for Paid state
+              statusBadge.className =
+                "flex items-center space-x-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-4 py-2 rounded-full text-xs font-medium";
+              statusBadge.innerHTML = `
+              <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+              </svg>
+              <span>Payment Successful!</span>
+            `;
+            }
+          } catch (err) {
+            console.error("Polling error:", err);
+          }
+        }, 3000); // Check every 3 seconds
+      }
+
+      function resetForm() {
+        if (pollInterval) clearInterval(pollInterval);
+
+        qrContainer.classList.add("hidden");
+        paymentForm.classList.remove("hidden");
+        paymentForm.reset();
+        hideAlert();
+
+        // Reset badge state
+        statusBadge.className =
+          "flex items-center space-x-2 bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-3 py-1.5 rounded-full text-xs font-medium";
+        statusBadge.innerHTML = `
+        <span class="w-2 h-2 rounded-full bg-yellow-400 animate-ping"></span>
+        <span>Waiting for payment...</span>
+      `;
+      }
+
+      function setLoading(isLoading) {
+        submitBtn.disabled = isLoading;
+        submitBtn.innerText = isLoading
+          ? "Generating..."
+          : "Generate KHQR Code";
+        submitBtn.style.opacity = isLoading ? "0.7" : "1";
+      }
+
+      function showAlert(msg, type = "error") {
+        alertBox.classList.remove("hidden");
+        alertBox.textContent = msg;
+        if (type === "error") {
+          alertBox.className =
+            "mb-4 p-3 rounded-lg text-sm font-medium bg-red-500/10 text-red-400 border border-red-500/20";
+        }
+      }
+
+      function hideAlert() {
+        alertBox.classList.add("hidden");
+      }
+    </script>
+  </body>
+</html>
